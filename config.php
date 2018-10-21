@@ -5,13 +5,14 @@
     
     $doOCR = true;
     $doRenameAfterOCR = true;
+    $doOrganizeInDirectoryStructure = true;
     $doTagging = true;
     
     // files which match this rule are considered to be OCR'd
-    $matchWithoutOCR = "Scan*"; // without file extension .pdf
+    $matchWithoutOCR = "*"; // without file extension .pdf
     
-    // files which match this regex are considered for automatic rename
-    $OCRPrefix = "OCR_"; // without file extension .pdf
+    // the extension which shows that the file is already indexed e.g. scan.ocr.pdf
+    $OCRExtension = "ocr"; // without file extension .pdf
     
     // ocrmypdf options
     // -s 	don't OCR pages with text again
@@ -22,25 +23,25 @@
     $dockercontainer = "jbarlow83/ocrmypdf";
     
     // here are freshly scanned documents. to be OCR'd and renamed.
-    $inboxfolder = "/volume1/homes/stefan/Dokumente/Scans/_inbox";
+    $inboxfolder = "/Users/fa/Projects/PHP/FileBasedMiniDMS/TEST/INBOX";
     
     // Set $archivefolder to the folder which contains your documents for tagging.
     // Without trailing (back)slash!
-    $archivefolder = "/volume1/homes/stefan/Dokumente/Scans";
+    $archivefolder = "/Users/fa/Projects/PHP/FileBasedMiniDMS/TEST/Archive";
     
     // recycle-bin
-    $recyclebin = "/volume1/homes/stefan/Dokumente/Scans/#recycle";
+    $recyclebin = "/Users/fa/Projects/PHP/FileBasedMiniDMS/TEST/#recycle";
     
     // In $tagsfolder your tags will be created. Please use a fresh folder.
     // Everything here is subject to be deleted! Without trailing (back)slash!
-    $tagsfolder = "/volume1/homes/stefan/Dokumente/Scans/tags";
+    $tagsfolder = "/Users/fa/Projects/PHP/FileBasedMiniDMS/TEST/TAGS";
     
     // $logfile is the path to a logfile OR "syslog" OR "stdout"
     //$logfile = dirname(__FILE__) . "/FileBasedMiniDMS.log";
-    $logfile = "/volume1/homes/stefan/Dokumente/Scans/_inbox/FileBasedMiniDMS.log";
+    $logfile = "/Users/fa/Projects/PHP/FileBasedMiniDMS/FileBasedMiniDMS.log";
     
     // $loglevel can be 0 (none), 3 (error), 6 (info), 7 (all)
-    $loglevel = 6;
+    $loglevel = 7;
     
     // $timezone. just for logging purposes.
     $timezone = 'Europe/Berlin';
@@ -62,12 +63,35 @@
         "Arzt,Ärztin" => "Arzt",
         "Heilpraktiker" => "Heilpraktiker",
         "Vodafone GmbH" => "Vodafone",
+        );
+    
+    // first match is used
+    $categorizerules = array(
+        // "rule" => "folder_path" (without leading and trailing slashes)
+        "Fidor&Bank,Bank,Konto" => "bank",
+        "Rechnung"              => "rechnungen",
+        "Finanzamt"             => "finanzamt",
+        "Persönliches"          => "persoenliches",
+        "Arbeit,Lohn"           => "arbeit",
+        "Zeugniss,Zeugnis"      => "zeugnisse",
+        "Auto,KFZ"              => "auto",
+        "Wohnung"               => "wohnung",
+        "Versicherung"          => "versicherung",
+    );
+
+    // first match is used
+    $personrules = array(
+        // "rule"       => "folder_path" (without leading and trailing slashes)
+        "tippmate"      => "tippmate",
+    	"florian"	    => "florian",
+    	"magdalena"		=> "magdalena",
+        "felix"         => "felix",
+        "jakob"         => "jakob",
     	);
     
     // all are applied and concaternated
     $tagrules = array(
         // "tag"                => "rule"
-    	"#stefan"		        => "Stefan&Weiss",
     	"#rechnung"		        => "Rechnung",
         "#beitragsanpassung"    => "Beitragsanpassung",
     	);

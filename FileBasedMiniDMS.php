@@ -2,7 +2,7 @@
     /* 
         FileBasedMiniDMS.php    by Stefan Weiss (2017)
     */
-    $version = "0.11";
+    $version = "0.12";
     
     require(dirname(__FILE__) . "/config.php");
     
@@ -60,12 +60,18 @@
             $scanpath_parts = pathinfo($scan);
             if (0 != strcasecmp("pdf", $scanpath_parts['extension']))
                 continue;
+
+            trace(LOG_DEBUG, "File Extension: ".$scanpath_parts['extension']."\n");
+            trace(LOG_DEBUG, "File Name: ".$scanpath_parts['filename']."\n");
             
             // OCR new pdf's
         	if (fnmatch($matchWithoutOCR, $scanpath_parts['filename'], FNM_CASEFOLD))
         	{
-        		$ocrfilename = getOCRfilename($scan);
-                $user_id = exec('stat -c "%u" "'. $scan .'"');
+                trace(LOG_DEBUG, "scan: $scan\n");
+                $ocrfilename = getOCRfilename($scan);
+                trace(LOG_DEBUG, "ocrfilename: $ocrfilename\n");
+
+                $user_id = 501;//exec('stat -u "%u" "'. $scan .'"');
                 if (!is_numeric($user_id))
                 {
                     trace(LOG_ERROR, "Could not get uid of file $scan\n");
@@ -90,8 +96,7 @@
         	}
         	
     		// Rename new PDF's based on rules
-	    	if ($doRenameAfterOCR &&
-	    		fnmatch($OCRPrefix . '*', $scanpath_parts['filename'], FNM_CASEFOLD))
+	    	if ($doRenameAfterOCR && preg_match("/.*\.$OCRExtension$/i", $scanpath_parts['filename']))
 	    	{
 	    		unset($out);
 	    		unset($namedate);
@@ -107,9 +112,12 @@
         			// == rename rules
         			$namedate = findPdfDate($out);
                     // name: default should be original filename without starting-date and without hashtags
+                    trace(LOG_DEBUG, "Start searching for matching RENAME rules: \n");
         			$namename = findPdfSubject($out, stripDateAndTags($scanpath_parts['filename']));
                     
                     gethashtags($scanpath_parts['filename'], $tags); // get tags from source filename and keep them
+                    
+                    trace(LOG_DEBUG, "Start searching for matching TAG rules: \n");
                     findPdfTags($out, $tags);
                     foreach($tags as &$tag) {
                         $tag = strtolower($tag);
@@ -120,10 +128,39 @@
                         // get tags from source filename and keep them
                         $nametags = " " . implode(" ", $tags);
                     }
+
+                    // == check if move to directory structure is activated
+                    if ($doOrganizeInDirectoryStructure) {
+                        trace(LOG_DEBUG, "Start searching for matching PERSON rules: \n");
+                        $person = trim(findPdfPersons($out), '/');
+
+                        trace(LOG_DEBUG, "Start searching for matching CATEGORY rules: \n");
+                        $category = trim(findPdfCategories($out), '/');
+
+                        if($person && $category){
+                            $category_folder_path = $archivefolder . "/" . $person . "/" . $category;
+                        }
+                        else {
+                            $category_folder_path = $inboxfolder . "/not_sorted";
+                        }
+
+                        if (!is_dir("$category_folder_path") &&
+                            !$testmode &&
+                            !mkdir("$category_folder_path", 0777, true))
+                            trace(LOG_ERR, "ERROR: mkdir(\"$category_folder_path\", 0777, true)\n");
+
+
+                        trace(LOG_DEBUG, "category_folder_path: $category_folder_path\n");
+                    }
         			
-        			// == do rename
-        			$newname = $scanpath_parts['dirname'] . "/$namedate " . $namename . "$nametags." . $scanpath_parts['extension'];
+                    // == do rename
+                    trace(LOG_DEBUG, "dirname: ".$scanpath_parts['dirname']."\n");
+                    $basedir = $category_folder_path ? $category_folder_path : $scanpath_parts['dirname'];
+        			$newname = $basedir . "/$namedate " . $namename . "$nametags." . $scanpath_parts['extension'];
                     
+                    trace(LOG_DEBUG, "newname: ".$newname."\n");
+                    trace(LOG_DEBUG, "scan: ".$scan."\n");
+
                     if ($newname == $scan) {
                         trace(LOG_DEBUG, "rename not required: $scan\n");
                         continue;
@@ -141,43 +178,42 @@
         		}
 	    	}
     	}
-    
     }
     
     if ($doTagging) {
 	    trace(LOG_INFO, "Scanning for Tagging: $archivefolder\n");
 	    $unusedFiles = listAllFiles($tagsfolder); //all by default, remove files from array if they still exist later
-	    
-	    if ($handle = opendir($archivefolder)) {
-	        while (false !== ($entry = readdir($handle))) {
-	            if ($entry != "." && $entry != ".." &&
-	            	!is_dir("$archivefolder/$entry") &&
-	            	0<gettags($entry, $tags))
-	            {
-                	// Process Hashtags
-                    foreach ($tags as $tag) {
-                        if (!is_dir("$tagsfolder/$tag") &&
-                            !$testmode &&
-                            !mkdir("$tagsfolder/$tag", 0777, true))
-                            trace(LOG_ERR, "ERROR: mkdir(\"$tagsfolder/$tag\", 0777, true)\n");
+        
+        $archiveFiles = listAllFiles($archivefolder);
+    	
+        foreach ($archiveFiles as $file) {
+            $filepath_parts = pathinfo($file);
+            $file_name = $filepath_parts['basename'];
+            $file_path = $filepath_parts['dirname'];
+
+            if (gettags($file_name, $tags) > 0) {
+                // Process Hashtags
+                foreach ($tags as $tag) {
+                    if (!is_dir("$tagsfolder/$tag") &&
+                        !$testmode &&
+                        !mkdir("$tagsfolder/$tag", 0777, true))
+                        trace(LOG_ERR, "ERROR: mkdir(\"$tagsfolder/$tag\", 0777, true)\n");
+                    
+                    $namewithoutthistag = preg_replace("/\s*#$tag/", "", $file_name);
+                    if (NULL != $namewithoutthistag) {
+                        $unusedFiles = array_diff($unusedFiles, array("$tagsfolder/$tag/$namewithoutthistag"));
+                        if (file_exists("$tagsfolder/$tag/$namewithoutthistag"))
+                            continue;
                         
-                        $namewithoutthistag = preg_replace("/\s*#$tag/", "", $entry);
-                        if (NULL != $namewithoutthistag) {
-                            $unusedFiles = array_diff($unusedFiles, array("$tagsfolder/$tag/$namewithoutthistag"));
-                            if (file_exists("$tagsfolder/$tag/$namewithoutthistag"))
-                                continue;
-                            
-                            // symlink does not work in webdav :(
-                            // copy or link (hardlink)
-                            trace(LOG_INFO, "linking \"$entry\" to \"tags/$tag/$namewithoutthistag\"\n");
-                            if (!$testmode &&
-                                !link("$archivefolder/$entry", "$tagsfolder/$tag/$namewithoutthistag"))
-                                trace(LOG_ERR, "ERROR linking \"$entry\" to \"tags/$tag/$namewithoutthistag\"\n");
-                        }
+                        // symlink does not work in webdav :(
+                        // copy or link (hardlink)
+                        trace(LOG_INFO, "linking \"$file_name\" to \"tags/$tag/$namewithoutthistag\"\n");
+                        if (!$testmode &&
+                            !link("$file_path/$file_name", "$tagsfolder/$tag/$namewithoutthistag"))
+                            trace(LOG_ERR, "ERROR linking \"$file_path/$file_name\" to \"tags/$tag/$namewithoutthistag\"\n");
                     }
-	            }
+                }
 	        }
-	        closedir($handle);
 	    }
 	    if (!$testmode) cleanUpTagFolder($unusedFiles, $tagsfolder);
     }
@@ -188,7 +224,7 @@
         foreach ($tagrules as $tag => $rule) {
             $ORarr = explode(',', $rule);
             foreach ($ORarr as $search) {
-                $ANDarr = explode('&', $rule);
+                $ANDarr = explode('&', $search);
                 if (matchAll($ANDarr, $textarr)) {
                     array_push($tagsarr, $tag);
                 }
@@ -201,13 +237,39 @@
         foreach ($renamerules as $rule => $name) {
             $ORarr = explode(',', $rule);
             foreach ($ORarr as $search) {
-                $ANDarr = explode('&', $rule);
+                $ANDarr = explode('&', $search);
                 if (matchAll($ANDarr, $textarr)) {
                     return $name;
                 }
             }            
         }
         return $default;
+    }
+
+    function findPdfCategories($textarr) {
+        global $categorizerules;
+        foreach ($categorizerules as $rule => $folder_path) {
+            $ORarr = explode(',', $rule);
+            foreach ($ORarr as $search) {
+                $ANDarr = explode('&', $search);
+                if (matchAll($ANDarr, $textarr)) {
+                    return $folder_path;
+                }
+            }            
+        }
+    }
+
+    function findPdfPersons($textarr) {
+        global $personrules;
+        foreach ($personrules as $rule => $folder_path) {
+            $ORarr = explode(',', $rule);
+            foreach ($ORarr as $search) {
+                $ANDarr = explode('&', $search);
+                if (matchAll($ANDarr, $textarr)) {
+                    return $folder_path;
+                }
+            }            
+        }
     }
     
     function matchAll($searcharr, $linearr) {
@@ -220,7 +282,7 @@
     
     function matchInLines($search, $linearr) {
         foreach ($linearr as $line) {
-            if (fnmatch("*$search*", $line, FNM_CASEFOLD)) {
+            if (preg_match("/.*$search.*/i", $line)) {
                 trace(LOG_DEBUG, "!$search matches '$line'\n");
                 return true;
             }
@@ -295,10 +357,15 @@
     }
     
     function getOCRfilename($pdf) {
-    	global $OCRPrefix;
-        
+    	global $OCRExtension;
+        $extension = "";
         $pdf_parts = pathinfo($pdf);
-    	return getNextFreeFilename($pdf_parts['dirname'] . "/$OCRPrefix" . trim($pdf_parts['filename']) .'.'. $pdf_parts['extension']);
+
+        if (strpos($pdf_parts['filename'], ".".$OCRExtension) == false) {
+            $extension = "." . trim($OCRExtension, ".");
+        }
+
+    	return getNextFreeFilename($pdf_parts['dirname'] . "/" . trim($pdf_parts['filename']) . $extension .'.'. $pdf_parts['extension']);
     }
     
     // @returns count of tags found or FALSE on error
@@ -317,6 +384,7 @@
     function stripDateAndTags($str) {
         $str = preg_replace("/\d\d\d\d-[0-1]\d-[0-3]\d\s*/", "", $str);
         $str = preg_replace("/\s*#[^\.#\s]+/", "", $str);
+        $str = preg_replace("/\.ocr$/i", "", $str);
         return $str;
     }
     
